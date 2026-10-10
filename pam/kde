@@ -1,0 +1,33 @@
+# /etc/pam.d/kde -- Plasma lock screen, interactive (password) service.
+# Installed by kde-login-fixes (the kde-login-fixes repo). Original kept as
+# /usr/local/share/kde-login-fixes/backup/kde.orig
+#
+# Deliberately NOT a substack of password-auth: on this system password-auth
+# contains pam_fprintd (authselect "with-fingerprint"), and kscreenlocker already
+# runs the fingerprint reader through its own "kde-fingerprint" service. Having
+# pam_fprintd in both services makes the two PAM conversations race for the
+# reader. When this one wins, the unlock arrives without a password prompt and
+# the greeter shows the extra "Unlock" button that needs Enter; the loser gets
+# "device already claimed", which kscreenlocker treats as "fingerprint
+# permanently unavailable" and the fingerprint hint disappears.
+#
+# The auth stack below is password-auth minus pam_fprintd. If you change the
+# authselect profile (for example add SSSD), mirror the new auth lines here.
+auth        required      pam_env.so
+auth        required      pam_faildelay.so delay=2000000
+auth        sufficient    pam_unix.so nullok
+auth        required      pam_deny.so
+auth        include       postlogin
+
+account     required      pam_nologin.so
+account     include       password-auth
+
+password    include       password-auth
+
+session     required      pam_selinux.so close
+session     required      pam_loginuid.so
+session     required      pam_selinux.so open
+session     optional      pam_keyinit.so force revoke
+session     required      pam_namespace.so
+session     include       password-auth
+session     include       postlogin

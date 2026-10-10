@@ -1,0 +1,41 @@
+# /etc/pam.d/kde-fingerprint -- Plasma lock screen, fingerprint service.
+# Installed by kde-login-fixes (the kde-login-fixes repo). Original kept as
+# /usr/local/share/kde-login-fixes/backup/kde-fingerprint.orig
+#
+# Why not "substack fingerprint-auth": pam_fprintd defaults to a 30 second
+# verification timeout and returns PAM_AUTHINFO_UNAVAIL when it expires, and
+# kscreenlocker treats that code as "fingerprint reader permanently unavailable"
+# for the rest of the lock session, never restarting the authenticator. So if
+# you did not touch the reader within 30 s of waking the lock screen, the
+# fingerprint option vanished until the next lock.
+#
+# Fix: a very long timeout (one day; the greeter is killed on unlock, so the
+# claim on the reader is released then), and the module listed several times
+# with [success=done default=ignore] so that a sensor error, a disconnect
+# after suspend, or 3 non-matching scans fall through to a fresh attempt
+# instead of killing fingerprint unlock. 8 lines x 3 tries = 24 bad scans
+# before only the password is accepted.
+auth        required      pam_env.so
+auth        [success=done default=ignore]   pam_fprintd.so timeout=86400
+auth        [success=done default=ignore]   pam_fprintd.so timeout=86400
+auth        [success=done default=ignore]   pam_fprintd.so timeout=86400
+auth        [success=done default=ignore]   pam_fprintd.so timeout=86400
+auth        [success=done default=ignore]   pam_fprintd.so timeout=86400
+auth        [success=done default=ignore]   pam_fprintd.so timeout=86400
+auth        [success=done default=ignore]   pam_fprintd.so timeout=86400
+auth        [success=done default=ignore]   pam_fprintd.so timeout=86400
+auth        required      pam_deny.so
+auth        include       postlogin
+
+account     required      pam_nologin.so
+account     include       fingerprint-auth
+
+password    include       fingerprint-auth
+
+session     required      pam_selinux.so close
+session     required      pam_loginuid.so
+session     required      pam_selinux.so open
+session     optional      pam_keyinit.so force revoke
+session     required      pam_namespace.so
+session     include       fingerprint-auth
+session     include       postlogin

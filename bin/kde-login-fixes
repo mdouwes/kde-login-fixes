@@ -1,0 +1,96 @@
+#!/usr/bin/bash
+# kde-login-fixes: apply / revert / status for the local Plasma lock screen
+# changes. Installed to /usr/local/sbin and re-run by a dnf5 post-transaction
+# hook whenever plasma-desktop or plasma-workspace is updated.
+#
+# Usage: kde-login-fixes apply|revert|status
+# Env:   KLP_ROOT  alternative root (for testing), default "".
+#        KLP_DATA  directory holding patches/ and pam/, default
+#                  /usr/local/share/kde-login-fixes
+set -euo pipefail
+
+ROOT="${KLP_ROOT:-}"
+DATA="${KLP_DATA:-/usr/local/share/kde-login-fixes}"
+BACKUP="$DATA/backup"
+SHELL_PKG="$ROOT/usr/share/plasma/shells/org.kde.plasma.desktop"
+PAMDIR="$ROOT/etc/pam.d"
+PATCHES=("NoPasswordUnlock-any-key.patch")
+PAMFILES=("kde" "kde-fingerprint")
+
+log() { echo "kde-login-fixes: $*"; }
+
+patch_applied() { patch -R -p1 --dry-run -s -d "$SHELL_PKG" < "$DATA/patches/$1" >/dev/null 2>&1; }
+patch_applicable() { patch -p1 --dry-run -s -d "$SHELL_PKG" < "$DATA/patches/$1" >/dev/null 2>&1; }
+
+apply_qml() {
+    for p in "${PATCHES[@]}"; do
+        if patch_applied "$p"; then
+            log "qml: $p already applied"
+        elif patch_applicable "$p"; then
+            patch -p1 -s --no-backup-if-mismatch -d "$SHELL_PKG" < "$DATA/patches/$p"
+            log "qml: applied $p"
+        else
+            log "qml: WARNING $p neither applied nor applicable (upstream file changed?). Lock screen left as shipped." >&2
+            return 1
+        fi
+    done
+}
+
+revert_qml() {
+    for p in "${PATCHES[@]}"; do
+        if patch_applied "$p"; then
+            patch -R -p1 -s --no-backup-if-mismatch -d "$SHELL_PKG" < "$DATA/patches/$p"
+            log "qml: reverted $p"
+        else
+            log "qml: $p not applied, nothing to revert"
+        fi
+    done
+}
+
+apply_pam() {
+    mkdir -p "$BACKUP"
+    for f in "${PAMFILES[@]}"; do
+        local target="$PAMDIR/$f" src="$DATA/pam/$f"
+        if [ -f "$target" ] && cmp -s "$target" "$src"; then
+            log "pam: $f already in place"
+        else
+            if [ -f "$target" ] && [ ! -f "$BACKUP/$f.orig" ]; then
+                cp -p "$target" "$BACKUP/$f.orig"
+                log "pam: saved original $f to $BACKUP/$f.orig"
+            fi
+            install -m 0644 -o root -g root "$src" "$target" 2>/dev/null || install -m 0644 "$src" "$target"
+            log "pam: installed $f"
+        fi
+        if [ -f "$target.rpmnew" ]; then
+            log "pam: NOTE $target.rpmnew exists; the distro changed its default. Compare it with $src and update the patch if needed."
+        fi
+    done
+}
+
+revert_pam() {
+    for f in "${PAMFILES[@]}"; do
+        local target="$PAMDIR/$f"
+        if [ -f "$BACKUP/$f.orig" ]; then
+            install -m 0644 "$BACKUP/$f.orig" "$target"
+            log "pam: restored original $f"
+        else
+            log "pam: no backup for $f, leaving as is"
+        fi
+    done
+}
+
+status() {
+    for p in "${PATCHES[@]}"; do
+        if patch_applied "$p"; then echo "qml  $p: applied"; elif patch_applicable "$p"; then echo "qml  $p: NOT applied (applicable)"; else echo "qml  $p: NOT applied and does not apply cleanly"; fi
+    done
+    for f in "${PAMFILES[@]}"; do
+        if cmp -s "$PAMDIR/$f" "$DATA/pam/$f"; then echo "pam  $f: patched"; else echo "pam  $f: NOT patched"; fi
+    done
+}
+
+case "${1:-}" in
+    apply)  apply_pam; apply_qml ;;
+    revert) revert_qml; revert_pam ;;
+    status) status ;;
+    *) echo "usage: $0 apply|revert|status" >&2; exit 2 ;;
+esac

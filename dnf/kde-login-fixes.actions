@@ -1,0 +1,4 @@
+# Re-apply the local Plasma lock screen patches after the packages that own the
+# patched files are upgraded. Format: callback:package_filter:direction:options:command
+post_transaction:plasma-desktop:in::/usr/local/sbin/kde-login-fixes apply
+post_transaction:plasma-workspace:in::/usr/local/sbin/kde-login-fixes apply
